@@ -27,19 +27,19 @@ def fetch_weather(city_name):
             "wind_speed": data["wind"]["speed"],
             "wind_direction": data["wind"]["deg"],
             "pressure": data["main"]["pressure"],
-            "visibility": data.get("visibility", "*"),
+            "visibility": data.get("visibility", None),
             "weather_desc": data["weather"][0]["description"],
             "updated_at": datetime.utcnow().isoformat()
         }
     else:
         print(f"Failed to fetch weather for {city_name}: {response.status_code}")
         return {
-            "temperature": "*",
-            "humidity": "*",
-            "wind_speed": "*",
-            "wind_direction": "*",
-            "pressure": "*",
-            "visibility": "*",
+            "temperature": None,
+            "humidity": None,
+            "wind_speed": None,
+            "wind_direction": None,
+            "pressure": None,
+            "visibility": None,
             "weather_desc": "*",
             "updated_at": datetime.utcnow().isoformat()
         }
