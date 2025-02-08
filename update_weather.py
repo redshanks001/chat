@@ -27,13 +27,22 @@ def fetch_weather(city_name):
             "wind_speed": data["wind"]["speed"],
             "wind_direction": data["wind"]["deg"],
             "pressure": data["main"]["pressure"],
-            "visibility": data.get("visibility", None),
+            "visibility": data.get("visibility", "*"),
             "weather_desc": data["weather"][0]["description"],
             "updated_at": datetime.utcnow().isoformat()
         }
     else:
         print(f"Failed to fetch weather for {city_name}: {response.status_code}")
-        return None
+        return {
+            "temperature": "*",
+            "humidity": "*",
+            "wind_speed": "*",
+            "wind_direction": "*",
+            "pressure": "*",
+            "visibility": "*",
+            "weather_desc": "*",
+            "updated_at": datetime.utcnow().isoformat()
+        }
 
 def update_weather():
     """Fetch districts from Supabase, get weather data, and update the table."""
@@ -45,15 +54,13 @@ def update_weather():
             city_name = district["name"]
             
             weather_data = fetch_weather(city_name)
-            if weather_data:
-                # Upsert weather data
-                supabase.table("weather").upsert({
-                    "district_id": district_id,
-                    **weather_data
-                }).execute()
-                print(f"Updated weather for {city_name}")
-            else:
-                print(f"Skipping update for {city_name}")
+            
+            # Upsert weather data even if fetching fails
+            supabase.table("weather").upsert({
+                "district_id": district_id,
+                **weather_data
+            }).execute()
+            print(f"Updated weather for {city_name}")
 
 if __name__ == "__main__":
     update_weather()
