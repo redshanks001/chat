@@ -1,31 +1,22 @@
 import requests
-from datetime import datetime
 import os
-from supabase import create_client, Client
+from supabase import create_client
+from datetime import datetime
 
-# Supabase credentials
-SUPABASE_URL = os.getenv("SUPABASE_URL")  # Your Supabase Project URL
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")  # Your Supabase Anon Key
-
-# Create a Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-# OpenWeather API details
+# Load environment variables
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-WEATHER_API_URL = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
 
-# District mappings for unrecognized names
-district_name_mapping = {
-    "Nicobars": "Port Blair,IN",
-    "North and Middle Andaman": "Port Blair,IN",
-    "South Andaman": "Port Blair,IN"
-}
+# Create Supabase client
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# OpenWeather API URL template
+WEATHER_API_URL = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
 
 def fetch_weather(city_name):
     """Fetch weather data from OpenWeather API."""
-    mapped_name = district_name_mapping.get(city_name, city_name)
-    url = WEATHER_API_URL.format(mapped_name, OPENWEATHER_API_KEY)
-    
+    url = WEATHER_API_URL.format(city_name, OPENWEATHER_API_KEY)
     response = requests.get(url)
     
     if response.status_code == 200:
@@ -42,51 +33,27 @@ def fetch_weather(city_name):
         }
     else:
         print(f"Failed to fetch weather for {city_name}: {response.status_code}")
-        return None  # No data, keep fields empty
+        return None
 
-def update_weather_table():
-    """Fetch all districts from Supabase and update the weather table."""
-    try:
-        # Fetch all districts
-        response = supabase.table("districts").select("id, name").execute()
-        districts = response.data
+def update_weather():
+    """Fetch districts from Supabase, get weather data, and update the table."""
+    districts = supabase.table("districts").select("id, name").execute()
 
-        for district in districts:
+    if districts:
+        for district in districts.data:
             district_id = district["id"]
-            district_name = district["name"]
-            weather_data = fetch_weather(district_name)
-
-            if weather_data is None:
-                # Insert NULL values if no weather data is found
+            city_name = district["name"]
+            
+            weather_data = fetch_weather(city_name)
+            if weather_data:
+                # Upsert weather data
                 supabase.table("weather").upsert({
                     "district_id": district_id,
-                    "temperature": None,
-                    "humidity": None,
-                    "wind_speed": None,
-                    "wind_direction": None,
-                    "pressure": None,
-                    "visibility": None,
-                    "weather_desc": None,
-                    "updated_at": datetime.utcnow().isoformat()
+                    **weather_data
                 }).execute()
+                print(f"Updated weather for {city_name}")
             else:
-                # Insert real weather data
-                supabase.table("weather").upsert({
-                    "district_id": district_id,
-                    "temperature": weather_data["temperature"],
-                    "humidity": weather_data["humidity"],
-                    "wind_speed": weather_data["wind_speed"],
-                    "wind_direction": weather_data["wind_direction"],
-                    "pressure": weather_data["pressure"],
-                    "visibility": weather_data["visibility"],
-                    "weather_desc": weather_data["weather_desc"],
-                    "updated_at": weather_data["updated_at"]
-                }).execute()
+                print(f"Skipping update for {city_name}")
 
-        print("Weather data updated successfully.")
-
-    except Exception as e:
-        print(f"Error updating weather table: {e}")
-
-# Run the update function
-update_weather_table()
+if __name__ == "__main__":
+    update_weather()
