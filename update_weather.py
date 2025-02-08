@@ -1,18 +1,20 @@
 import requests
-import psycopg2
 from datetime import datetime
 import os
+from supabase import create_client, Client
 
-# Supabase credentials from environment variables
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-DATABASE_URL = os.getenv("DATABASE_URL")  # Your Supabase Postgres connection string
+# Supabase credentials
+SUPABASE_URL = os.getenv("SUPABASE_URL")  # Your Supabase Project URL
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")  # Your Supabase Anon Key
+
+# Create a Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+# OpenWeather API details
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-
-# OpenWeather API URL template
 WEATHER_API_URL = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
 
-# Map districts to valid city names for OpenWeather API
+# District mappings for unrecognized names
 district_name_mapping = {
     "Nicobars": "Port Blair,IN",
     "North and Middle Andaman": "Port Blair,IN",
@@ -21,7 +23,7 @@ district_name_mapping = {
 
 def fetch_weather(city_name):
     """Fetch weather data from OpenWeather API."""
-    mapped_name = district_name_mapping.get(city_name, city_name)  # Use mapped name if available
+    mapped_name = district_name_mapping.get(city_name, city_name)
     url = WEATHER_API_URL.format(mapped_name, OPENWEATHER_API_KEY)
     
     response = requests.get(url)
@@ -43,53 +45,44 @@ def fetch_weather(city_name):
         return None  # No data, keep fields empty
 
 def update_weather_table():
-    """Fetch all districts and update the weather table."""
+    """Fetch all districts from Supabase and update the weather table."""
     try:
-        conn = psycopg2.connect(DATABASE_URL)
-        cursor = conn.cursor()
-
         # Fetch all districts
-        cursor.execute("SELECT id, name FROM districts;")
-        districts = cursor.fetchall()
+        response = supabase.table("districts").select("id, name").execute()
+        districts = response.data
 
-        for district_id, district_name in districts:
+        for district in districts:
+            district_id = district["id"]
+            district_name = district["name"]
             weather_data = fetch_weather(district_name)
 
-            # If weather data is None, insert NULL values
             if weather_data is None:
-                cursor.execute("""
-                    INSERT INTO weather (district_id, temperature, humidity, wind_speed, wind_direction, pressure, visibility, weather_desc, updated_at)
-                    VALUES (%s, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NOW())
-                    ON CONFLICT (district_id) DO UPDATE 
-                    SET temperature = EXCLUDED.temperature,
-                        humidity = EXCLUDED.humidity,
-                        wind_speed = EXCLUDED.wind_speed,
-                        wind_direction = EXCLUDED.wind_direction,
-                        pressure = EXCLUDED.pressure,
-                        visibility = EXCLUDED.visibility,
-                        weather_desc = EXCLUDED.weather_desc,
-                        updated_at = NOW();
-                """, (district_id,))
+                # Insert NULL values if no weather data is found
+                supabase.table("weather").upsert({
+                    "district_id": district_id,
+                    "temperature": None,
+                    "humidity": None,
+                    "wind_speed": None,
+                    "wind_direction": None,
+                    "pressure": None,
+                    "visibility": None,
+                    "weather_desc": None,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).execute()
             else:
-                cursor.execute("""
-                    INSERT INTO weather (district_id, temperature, humidity, wind_speed, wind_direction, pressure, visibility, weather_desc, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (district_id) DO UPDATE 
-                    SET temperature = EXCLUDED.temperature,
-                        humidity = EXCLUDED.humidity,
-                        wind_speed = EXCLUDED.wind_speed,
-                        wind_direction = EXCLUDED.wind_direction,
-                        pressure = EXCLUDED.pressure,
-                        visibility = EXCLUDED.visibility,
-                        weather_desc = EXCLUDED.weather_desc,
-                        updated_at = EXCLUDED.updated_at;
-                """, (district_id, weather_data["temperature"], weather_data["humidity"], 
-                      weather_data["wind_speed"], weather_data["wind_direction"], weather_data["pressure"], 
-                      weather_data["visibility"], weather_data["weather_desc"], weather_data["updated_at"]))
+                # Insert real weather data
+                supabase.table("weather").upsert({
+                    "district_id": district_id,
+                    "temperature": weather_data["temperature"],
+                    "humidity": weather_data["humidity"],
+                    "wind_speed": weather_data["wind_speed"],
+                    "wind_direction": weather_data["wind_direction"],
+                    "pressure": weather_data["pressure"],
+                    "visibility": weather_data["visibility"],
+                    "weather_desc": weather_data["weather_desc"],
+                    "updated_at": weather_data["updated_at"]
+                }).execute()
 
-        conn.commit()
-        cursor.close()
-        conn.close()
         print("Weather data updated successfully.")
 
     except Exception as e:
