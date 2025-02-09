@@ -15,7 +15,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # OpenWeather One Call API (Only Free Version 2.5 is Used)
 ONE_CALL_API_URL = "https://api.openweathermap.org/data/2.5/onecall?lat={}&lon={}&appid={}&units=metric&exclude=minutely"
 
-# OpenWeather Air Pollution API (Separate Call for AQI)
+# OpenWeather Air Pollution API (Fixed API Call)
 AIR_POLLUTION_API_URL = "https://api.openweathermap.org/data/2.5/air_pollution?lat={}&lon={}&appid={}"
 
 # Air Quality Index (AQI) categories mapping
@@ -38,50 +38,62 @@ def unix_to_datetime(unix_timestamp):
 def fetch_weather_and_forecast(latitude, longitude):
     """Fetch current weather, hourly & daily forecasts from OpenWeather API."""
     url = ONE_CALL_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
-    response = requests.get(url)
 
-    if response.status_code == 200:
-        data = response.json()
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
 
-        # Extract current weather data
-        current = data["current"]
-        weather_data = {
-            "temperature": current["temp"],
-            "humidity": current["humidity"],
-            "wind_speed": current["wind_speed"],
-            "wind_direction": current["wind_deg"],
-            "pressure": current["pressure"],
-            "visibility": current.get("visibility"),
-            "weather_desc": current["weather"][0]["description"],
-            "updated_at": datetime.utcnow().isoformat()
-        }
+            # Extract current weather data
+            current = data["current"]
+            weather_data = {
+                "temperature": current["temp"],
+                "humidity": current["humidity"],
+                "wind_speed": current["wind_speed"],
+                "wind_direction": current["wind_deg"],
+                "pressure": current["pressure"],
+                "visibility": current.get("visibility"),
+                "weather_desc": current["weather"][0]["description"],
+                "updated_at": datetime.utcnow().isoformat()
+            }
 
-        # Extract hourly & daily temperature forecast
-        weather_data["hourly_forecast"] = [
-            {"time": unix_to_datetime(h["dt"]), "temperature": h["temp"]} for h in data["hourly"][:24]
-        ]
-        weather_data["daily_forecast"] = [
-            {"date": unix_to_datetime(d["dt"]), "temperature": d["temp"]["day"]} for d in data["daily"][:8]
-        ]
+            # Extract hourly & daily temperature forecast
+            weather_data["hourly_forecast"] = [
+                {"time": unix_to_datetime(h["dt"]), "temperature": h["temp"]} for h in data["hourly"][:24]
+            ]
+            weather_data["daily_forecast"] = [
+                {"date": unix_to_datetime(d["dt"]), "temperature": d["temp"]["day"]} for d in data["daily"][:8]
+            ]
 
-        return weather_data
+            return weather_data
 
-    else:
-        print(f"Failed to fetch weather data for ({latitude}, {longitude}): {response.status_code}")
+        else:
+            print(f"Failed to fetch weather data for ({latitude}, {longitude}): {response.status_code}")
+            print("Response:", response.text)  # Debugging
+            return None
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching weather data for ({latitude}, {longitude}): {e}")
         return None
 
 def fetch_air_quality(latitude, longitude):
     """Fetch air pollution data from OpenWeather API."""
     url = AIR_POLLUTION_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
-    response = requests.get(url)
 
-    if response.status_code == 200:
-        data = response.json()
-        aqi_value = data["list"][0]["main"]["aqi"]
-        return get_aqi_category(aqi_value)
-    
-    print(f"Failed to fetch air quality for ({latitude}, {longitude}): {response.status_code}")
-    return None
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            aqi_value = data["list"][0]["main"]["aqi"]
+            return get_aqi_category(aqi_value)
+
+        print(f"Failed to fetch air quality for ({latitude}, {longitude}): {response.status_code}")
+        print("Response:", response.text)  # Debugging
+        return None
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching air quality for ({latitude}, {longitude}): {e}")
+        return None
 
 def update_weather():
     """Fetch districts from Supabase, get weather data, and update the table."""
@@ -101,7 +113,7 @@ def update_weather():
             # Fetch weather and forecast data
             weather_data = fetch_weather_and_forecast(latitude, longitude)
 
-            # Fetch air quality separately (since One Call API does not include AQI in the free plan)
+            # Fetch air quality separately
             air_pollution = fetch_air_quality(latitude, longitude)
 
             if weather_data:
