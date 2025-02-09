@@ -14,7 +14,31 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # OpenWeather API URL templates
 WEATHER_API_URL_CITY = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
 WEATHER_API_URL_COORDS = "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}&units=metric"
-AIR_POLLUTION_API_URL = "https://api.openweathermap.org/data/2.5/air_pollution?lat={}&lon={}&appid={}" 
+AIR_POLLUTION_API_URL = "https://api.openweathermap.org/data/2.5/air_pollution?lat={}&lon={}&appid={}"
+
+# Air Quality Index (AQI) categories mapping
+AQI_CATEGORIES = {
+    1: "Good",
+    2: "Fair",
+    3: "Moderate",
+    4: "Poor",
+    5: "Very Poor"
+}
+
+def get_aqi_category(aqi_value):
+    """Map AQI value to air quality category."""
+    if aqi_value == 1:
+        return "Good"
+    elif aqi_value == 2:
+        return "Fair"
+    elif aqi_value == 3:
+        return "Moderate"
+    elif aqi_value == 4:
+        return "Poor"
+    elif aqi_value == 5:
+        return "Very Poor"
+    else:
+        return "Unknown"
 
 def fetch_weather(city_name=None, latitude=None, longitude=None):
     """Fetch weather and air pollution data from OpenWeather API using city name or coordinates."""
@@ -43,7 +67,8 @@ def fetch_weather(city_name=None, latitude=None, longitude=None):
             air_pollution_response = requests.get(AIR_POLLUTION_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY))
             if air_pollution_response.status_code == 200:
                 air_data = air_pollution_response.json()
-                weather_data["air_pollution"] = air_data["list"][0]["main"]["aqi"]  # Air Quality Index (AQI)
+                aqi_value = air_data["list"][0]["main"]["aqi"]
+                weather_data["air_pollution"] = get_aqi_category(aqi_value)
             else:
                 weather_data["air_pollution"] = None
         else:
