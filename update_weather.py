@@ -11,12 +11,17 @@ OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 # Create Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# OpenWeather API URL template
-WEATHER_API_URL = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
+# OpenWeather API URL templates
+WEATHER_API_URL_CITY = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
+WEATHER_API_URL_COORDS = "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}&units=metric"
 
-def fetch_weather(city_name):
-    """Fetch weather data from OpenWeather API."""
-    url = WEATHER_API_URL.format(city_name, OPENWEATHER_API_KEY)
+def fetch_weather(city_name=None, latitude=None, longitude=None):
+    """Fetch weather data from OpenWeather API using city name or coordinates."""
+    if latitude is not None and longitude is not None:
+        url = WEATHER_API_URL_COORDS.format(latitude, longitude, OPENWEATHER_API_KEY)
+    else:
+        url = WEATHER_API_URL_CITY.format(city_name, OPENWEATHER_API_KEY)
+    
     response = requests.get(url)
     
     if response.status_code == 200:
@@ -32,7 +37,7 @@ def fetch_weather(city_name):
             "updated_at": datetime.utcnow().isoformat()
         }
     else:
-        print(f"Failed to fetch weather for {city_name}: {response.status_code}")
+        print(f"Failed to fetch weather for {city_name or (latitude, longitude)}: {response.status_code}")
         return {
             "temperature": None,
             "humidity": None,
@@ -46,14 +51,16 @@ def fetch_weather(city_name):
 
 def update_weather():
     """Fetch districts from Supabase, get weather data, and update the table."""
-    districts = supabase.table("districts").select("id, name").execute()
+    districts = supabase.table("districts").select("id, name, latitude, longitude").execute()
 
     if districts:
         for district in districts.data:
             district_id = district["id"]
             city_name = district["name"]
+            latitude = district.get("latitude")
+            longitude = district.get("longitude")
             
-            weather_data = fetch_weather(city_name)
+            weather_data = fetch_weather(city_name=city_name, latitude=latitude, longitude=longitude)
             
             # Upsert weather data even if fetching fails
             supabase.table("weather").upsert({
