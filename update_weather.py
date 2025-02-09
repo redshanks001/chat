@@ -12,8 +12,11 @@ OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 # Create Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# OpenWeather One Call API (Single API for Weather & Air Pollution)
-ONE_CALL_API_URL = "https://api.openweathermap.org/data/3.0/onecall?lat={}&lon={}&appid={}&units=metric&exclude=minutely"
+# OpenWeather One Call API (Only Free Version 2.5 is Used)
+ONE_CALL_API_URL = "https://api.openweathermap.org/data/2.5/onecall?lat={}&lon={}&appid={}&units=metric&exclude=minutely"
+
+# OpenWeather Air Pollution API (Separate Call for AQI)
+AIR_POLLUTION_API_URL = "https://api.openweathermap.org/data/2.5/air_pollution?lat={}&lon={}&appid={}"
 
 # Air Quality Index (AQI) categories mapping
 AQI_CATEGORIES = {
@@ -28,8 +31,12 @@ def get_aqi_category(aqi_value):
     """Map AQI value to air quality category."""
     return AQI_CATEGORIES.get(aqi_value, "Unknown")
 
+def unix_to_datetime(unix_timestamp):
+    """Convert Unix timestamp to readable date format."""
+    return datetime.utcfromtimestamp(unix_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
 def fetch_weather_and_forecast(latitude, longitude):
-    """Fetch current weather, air pollution, hourly & daily forecasts from OpenWeather API."""
+    """Fetch current weather, hourly & daily forecasts from OpenWeather API."""
     url = ONE_CALL_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
     response = requests.get(url)
 
@@ -44,31 +51,37 @@ def fetch_weather_and_forecast(latitude, longitude):
             "wind_speed": current["wind_speed"],
             "wind_direction": current["wind_deg"],
             "pressure": current["pressure"],
-            "visibility": current.get("visibility", None),
+            "visibility": current.get("visibility"),
             "weather_desc": current["weather"][0]["description"],
             "updated_at": datetime.utcnow().isoformat()
         }
 
-        # Extract air pollution data
-        if "components" in current:
-            aqi_value = current["aqi"]
-            weather_data["air_pollution"] = get_aqi_category(aqi_value)
-        else:
-            weather_data["air_pollution"] = None
-
         # Extract hourly & daily temperature forecast
         weather_data["hourly_forecast"] = [
-            {"time": h["dt"], "temperature": h["temp"]} for h in data["hourly"][:24]
+            {"time": unix_to_datetime(h["dt"]), "temperature": h["temp"]} for h in data["hourly"][:24]
         ]
         weather_data["daily_forecast"] = [
-            {"date": d["dt"], "temperature": d["temp"]["day"]} for d in data["daily"][:8]
+            {"date": unix_to_datetime(d["dt"]), "temperature": d["temp"]["day"]} for d in data["daily"][:8]
         ]
 
         return weather_data
 
     else:
-        print(f"Failed to fetch data for ({latitude}, {longitude}): {response.status_code}")
+        print(f"Failed to fetch weather data for ({latitude}, {longitude}): {response.status_code}")
         return None
+
+def fetch_air_quality(latitude, longitude):
+    """Fetch air pollution data from OpenWeather API."""
+    url = AIR_POLLUTION_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        data = response.json()
+        aqi_value = data["list"][0]["main"]["aqi"]
+        return get_aqi_category(aqi_value)
+    
+    print(f"Failed to fetch air quality for ({latitude}, {longitude}): {response.status_code}")
+    return None
 
 def update_weather():
     """Fetch districts from Supabase, get weather data, and update the table."""
@@ -77,22 +90,31 @@ def update_weather():
     if districts and districts.data:
         for district in districts.data:
             district_id = district["id"]
+            city_name = district["name"]
             latitude = district.get("latitude")
             longitude = district.get("longitude")
 
             if latitude is None or longitude is None:
-                print(f"Skipping {district['name']} due to missing coordinates.")
+                print(f"Skipping {city_name} due to missing coordinates.")
                 continue
 
+            # Fetch weather and forecast data
             weather_data = fetch_weather_and_forecast(latitude, longitude)
+
+            # Fetch air quality separately (since One Call API does not include AQI in the free plan)
+            air_pollution = fetch_air_quality(latitude, longitude)
+
             if weather_data:
+                weather_data["air_pollution"] = air_pollution  # Add AQI to weather data
+                
+                # Upsert into Supabase
                 supabase.table("weather").upsert({
                     "district_id": district_id,
                     **weather_data
                 }).execute()
-                print(f"Updated weather for {district['name']}")
+                print(f"Updated weather for {city_name}")
 
-            # Add a delay to avoid exceeding the rate limit (60 RPM)
+            # Add delay to prevent exceeding OpenWeather API limit (60 requests per minute)
             time.sleep(1.1)
 
 if __name__ == "__main__":
