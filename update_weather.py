@@ -7,8 +7,7 @@ import time
 # Load environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-OPENWEATHER_API_KEY_1 = os.getenv("OPENWEATHER_API_KEY_1")
-OPENWEATHER_API_KEY_2 = os.getenv("OPENWEATHER_API_KEY_2")
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
 # Create Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -17,93 +16,75 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 ONE_CALL_API_URL = "https://api.openweathermap.org/data/3.0/onecall?lat={}&lon={}&exclude=minutely,alerts&appid={}&units=metric"
 
 # Air Quality Index (AQI) categories mapping
-AQI_CATEGORIES = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
-
-# API key management
-api_keys = [OPENWEATHER_API_KEY_1, OPENWEATHER_API_KEY_2]
-current_key_index = 0
+AQI_CATEGORIES = {
+    1: "Good",
+    2: "Fair",
+    3: "Moderate",
+    4: "Poor",
+    5: "Very Poor"
+}
 
 # Rate limiting
 RATE_LIMIT = 60  # requests per minute
-request_timestamps = {0: [], 1: []}
+request_timestamps = []
 
 def get_aqi_category(aqi_value):
     """Map AQI value to air quality category."""
     return AQI_CATEGORIES.get(aqi_value, "Unknown")
 
-def switch_api_key():
-    """Switch to the other API key."""
-    global current_key_index
-    current_key_index = (current_key_index + 1) % len(api_keys)
-    print(f"Switched to API key {current_key_index + 1}")
-
 def wait_for_rate_limit():
     """Wait if we're approaching the rate limit."""
-    global current_key_index
+    global request_timestamps
     now = datetime.now()
     minute_ago = now - timedelta(minutes=1)
     
     # Remove timestamps older than 1 minute
-    request_timestamps[current_key_index] = [ts for ts in request_timestamps[current_key_index] if ts > minute_ago]
+    request_timestamps = [ts for ts in request_timestamps if ts > minute_ago]
     
     # If we're at the rate limit, wait until we're under it
-    while len(request_timestamps[current_key_index]) >= RATE_LIMIT:
+    while len(request_timestamps) >= RATE_LIMIT:
         time.sleep(1)
         now = datetime.now()
         minute_ago = now - timedelta(minutes=1)
-        request_timestamps[current_key_index] = [ts for ts in request_timestamps[current_key_index] if ts > minute_ago]
+        request_timestamps = [ts for ts in request_timestamps if ts > minute_ago]
 
 def fetch_weather(latitude, longitude):
     """Fetch weather and air pollution data from OpenWeather One Call API using coordinates."""
-    global current_key_index
+    wait_for_rate_limit()
     
-    for _ in range(len(api_keys) * 2):  # Try all available keys, with a second chance
-        wait_for_rate_limit()
-        
-        url = ONE_CALL_API_URL.format(latitude, longitude, api_keys[current_key_index])
-        
-        response = requests.get(url)
-        request_timestamps[current_key_index].append(datetime.now())
-        
-        if response.status_code == 200:
-            data = response.json()
-            current = data['current']
-            weather_data = {
-                "temperature": current['temp'],
-                "humidity": current['humidity'],
-                "wind_speed": current['wind_speed'],
-                "wind_direction": current['wind_deg'],
-                "pressure": current['pressure'],
-                "visibility": current.get('visibility'),
-                "weather_desc": current['weather'][0]['description'],
-                "air_pollution": get_aqi_category(current.get('air_quality', {}).get('aqi', 0)),
-                "updated_at": datetime.utcnow().isoformat(),
-                "daily_forecast": data['daily'],
-                "hourly_forecast": data['hourly'][:24]  # First 24 hours
-            }
-            return weather_data
-        elif response.status_code == 429:  # Too Many Requests
-            print(f"Rate limit reached for API key {current_key_index + 1}. Switching keys.")
-            switch_api_key()
-        else:
-            print(f"Failed to fetch weather for coordinates ({latitude}, {longitude}): {response.status_code}")
-            switch_api_key()
+    url = ONE_CALL_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
     
-    # If all keys fail, return null data
-    print(f"All API keys failed for coordinates ({latitude}, {longitude})")
-    return {
-        "temperature": None,
-        "humidity": None,
-        "wind_speed": None,
-        "wind_direction": None,
-        "pressure": None,
-        "visibility": None,
-        "weather_desc": "*",
-        "air_pollution": None,
-        "updated_at": datetime.utcnow().isoformat(),
-        "daily_forecast": None,
-        "hourly_forecast": None
-    }
+    response = requests.get(url)
+    request_timestamps.append(datetime.now())
+    
+    if response.status_code == 200:
+        data = response.json()
+        current = data['current']
+        weather_data = {
+            "temperature": current['temp'],
+            "humidity": current['humidity'],
+            "wind_speed": current['wind_speed'],
+            "wind_direction": current['wind_deg'],
+            "pressure": current['pressure'],
+            "visibility": current.get('visibility'),
+            "weather_desc": current['weather'][0]['description'],
+            "air_pollution": get_aqi_category(current.get('air_quality', {}).get('aqi', 0)),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        return weather_data
+    else:
+        print(f"Failed to fetch weather for coordinates ({latitude}, {longitude}): {response.status_code}")
+        return {
+            "temperature": None,
+            "humidity": None,
+            "wind_speed": None,
+            "wind_direction": None,
+            "pressure": None,
+            "visibility": None,
+            "weather_desc": "*",
+            "air_pollution": None,
+            "updated_at": datetime.utcnow().isoformat()
+        }
 
 def update_weather():
     """Fetch districts from Supabase, get weather data, and update the table."""
@@ -130,4 +111,3 @@ def update_weather():
 
 if __name__ == "__main__":
     update_weather()
-
