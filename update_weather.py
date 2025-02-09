@@ -1,8 +1,7 @@
 import requests
 import os
 from supabase import create_client
-from datetime import datetime, timedelta
-import time
+from datetime import datetime
 
 # Load environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -12,8 +11,10 @@ OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 # Create Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# OpenWeather One Call API URL template
-ONE_CALL_API_URL = "https://api.openweathermap.org/data/3.0/onecall?lat={}&lon={}&exclude=minutely,alerts&appid={}&units=metric"
+# OpenWeather API URL templates
+WEATHER_API_URL_CITY = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
+WEATHER_API_URL_COORDS = "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}&units=metric"
+AIR_POLLUTION_API_URL = "https://api.openweathermap.org/data/2.5/air_pollution?lat={}&lon={}&appid={}"
 
 # Air Quality Index (AQI) categories mapping
 AQI_CATEGORIES = {
@@ -24,56 +25,58 @@ AQI_CATEGORIES = {
     5: "Very Poor"
 }
 
-# Rate limiting
-RATE_LIMIT = 60  # requests per minute
-request_timestamps = []
-
 def get_aqi_category(aqi_value):
     """Map AQI value to air quality category."""
-    return AQI_CATEGORIES.get(aqi_value, "Unknown")
+    if aqi_value == 1:
+        return "Good"
+    elif aqi_value == 2:
+        return "Fair"
+    elif aqi_value == 3:
+        return "Moderate"
+    elif aqi_value == 4:
+        return "Poor"
+    elif aqi_value == 5:
+        return "Very Poor"
+    else:
+        return "Unknown"
 
-def wait_for_rate_limit():
-    """Wait if we're approaching the rate limit."""
-    global request_timestamps
-    now = datetime.now()
-    minute_ago = now - timedelta(minutes=1)
-    
-    # Remove timestamps older than 1 minute
-    request_timestamps = [ts for ts in request_timestamps if ts > minute_ago]
-    
-    # If we're at the rate limit, wait until we're under it
-    while len(request_timestamps) >= RATE_LIMIT:
-        time.sleep(1)
-        now = datetime.now()
-        minute_ago = now - timedelta(minutes=1)
-        request_timestamps = [ts for ts in request_timestamps if ts > minute_ago]
-
-def fetch_weather(latitude, longitude):
-    """Fetch weather and air pollution data from OpenWeather One Call API using coordinates."""
-    wait_for_rate_limit()
-    
-    url = ONE_CALL_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
+def fetch_weather(city_name=None, latitude=None, longitude=None):
+    """Fetch weather and air pollution data from OpenWeather API using city name or coordinates."""
+    if latitude is not None and longitude is not None:
+        url = WEATHER_API_URL_COORDS.format(latitude, longitude, OPENWEATHER_API_KEY)
+    else:
+        url = WEATHER_API_URL_CITY.format(city_name, OPENWEATHER_API_KEY)
     
     response = requests.get(url)
-    request_timestamps.append(datetime.now())
     
     if response.status_code == 200:
         data = response.json()
-        current = data['current']
         weather_data = {
-            "temperature": current['temp'],
-            "humidity": current['humidity'],
-            "wind_speed": current['wind_speed'],
-            "wind_direction": current['wind_deg'],
-            "pressure": current['pressure'],
-            "visibility": current.get('visibility'),
-            "weather_desc": current['weather'][0]['description'],
-            "air_pollution": get_aqi_category(current.get('air_quality', {}).get('aqi', 0)),
+            "temperature": data["main"]["temp"],
+            "humidity": data["main"]["humidity"],
+            "wind_speed": data["wind"]["speed"],
+            "wind_direction": data["wind"]["deg"],
+            "pressure": data["main"]["pressure"],
+            "visibility": data.get("visibility", None),
+            "weather_desc": data["weather"][0]["description"],
             "updated_at": datetime.utcnow().isoformat()
         }
+        
+        # Fetch air pollution data if coordinates are available
+        if latitude is not None and longitude is not None:
+            air_pollution_response = requests.get(AIR_POLLUTION_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY))
+            if air_pollution_response.status_code == 200:
+                air_data = air_pollution_response.json()
+                aqi_value = air_data["list"][0]["main"]["aqi"]
+                weather_data["air_pollution"] = get_aqi_category(aqi_value)
+            else:
+                weather_data["air_pollution"] = None
+        else:
+            weather_data["air_pollution"] = None
+        
         return weather_data
     else:
-        print(f"Failed to fetch weather for coordinates ({latitude}, {longitude}): {response.status_code}")
+        print(f"Failed to fetch weather for {city_name or (latitude, longitude)}: {response.status_code}")
         return {
             "temperature": None,
             "humidity": None,
@@ -97,17 +100,14 @@ def update_weather():
             latitude = district.get("latitude")
             longitude = district.get("longitude")
             
-            if latitude is not None and longitude is not None:
-                weather_data = fetch_weather(latitude, longitude)
-                
-                # Upsert weather data even if fetching fails
-                supabase.table("weather").upsert({
-                    "district_id": district_id,
-                    **weather_data
-                }).execute()
-                print(f"Updated weather for {city_name}")
-            else:
-                print(f"Skipping {city_name} due to missing coordinates")
+            weather_data = fetch_weather(city_name=city_name, latitude=latitude, longitude=longitude)
+            
+            # Upsert weather data even if fetching fails
+            supabase.table("weather").upsert({
+                "district_id": district_id,
+                **weather_data
+            }).execute()
+            print(f"Updated weather for {city_name}")
 
 if __name__ == "__main__":
     update_weather()
