@@ -1,7 +1,7 @@
 import requests
 import os
 from supabase import create_client
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
 # Load environment variables
@@ -17,17 +17,15 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 ONE_CALL_API_URL = "https://api.openweathermap.org/data/3.0/onecall?lat={}&lon={}&exclude=minutely,alerts&appid={}&units=metric"
 
 # Air Quality Index (AQI) categories mapping
-AQI_CATEGORIES = {
-    1: "Good",
-    2: "Fair",
-    3: "Moderate",
-    4: "Poor",
-    5: "Very Poor"
-}
+AQI_CATEGORIES = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
 
 # API key management
 api_keys = [OPENWEATHER_API_KEY_1, OPENWEATHER_API_KEY_2]
 current_key_index = 0
+
+# Rate limiting
+RATE_LIMIT = 60  # requests per minute
+request_timestamps = {0: [], 1: []}
 
 def get_aqi_category(aqi_value):
     """Map AQI value to air quality category."""
@@ -39,14 +37,33 @@ def switch_api_key():
     current_key_index = (current_key_index + 1) % len(api_keys)
     print(f"Switched to API key {current_key_index + 1}")
 
+def wait_for_rate_limit():
+    """Wait if we're approaching the rate limit."""
+    global current_key_index
+    now = datetime.now()
+    minute_ago = now - timedelta(minutes=1)
+    
+    # Remove timestamps older than 1 minute
+    request_timestamps[current_key_index] = [ts for ts in request_timestamps[current_key_index] if ts > minute_ago]
+    
+    # If we're at the rate limit, wait until we're under it
+    while len(request_timestamps[current_key_index]) >= RATE_LIMIT:
+        time.sleep(1)
+        now = datetime.now()
+        minute_ago = now - timedelta(minutes=1)
+        request_timestamps[current_key_index] = [ts for ts in request_timestamps[current_key_index] if ts > minute_ago]
+
 def fetch_weather(latitude, longitude):
     """Fetch weather and air pollution data from OpenWeather One Call API using coordinates."""
     global current_key_index
     
-    for _ in range(len(api_keys)):  # Try all available keys
+    for _ in range(len(api_keys) * 2):  # Try all available keys, with a second chance
+        wait_for_rate_limit()
+        
         url = ONE_CALL_API_URL.format(latitude, longitude, api_keys[current_key_index])
         
         response = requests.get(url)
+        request_timestamps[current_key_index].append(datetime.now())
         
         if response.status_code == 200:
             data = response.json()
@@ -68,7 +85,6 @@ def fetch_weather(latitude, longitude):
         elif response.status_code == 429:  # Too Many Requests
             print(f"Rate limit reached for API key {current_key_index + 1}. Switching keys.")
             switch_api_key()
-            time.sleep(1)  # Wait a bit before trying again
         else:
             print(f"Failed to fetch weather for coordinates ({latitude}, {longitude}): {response.status_code}")
             switch_api_key()
