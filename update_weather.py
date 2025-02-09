@@ -14,9 +14,10 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # OpenWeather API URL templates
 WEATHER_API_URL_CITY = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
 WEATHER_API_URL_COORDS = "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}&units=metric"
+AIR_POLLUTION_API_URL = "https://api.openweathermap.org/data/2.5/air_pollution?lat={}&lon={}&appid={}" 
 
 def fetch_weather(city_name=None, latitude=None, longitude=None):
-    """Fetch weather data from OpenWeather API using city name or coordinates."""
+    """Fetch weather and air pollution data from OpenWeather API using city name or coordinates."""
     if latitude is not None and longitude is not None:
         url = WEATHER_API_URL_COORDS.format(latitude, longitude, OPENWEATHER_API_KEY)
     else:
@@ -26,7 +27,7 @@ def fetch_weather(city_name=None, latitude=None, longitude=None):
     
     if response.status_code == 200:
         data = response.json()
-        return {
+        weather_data = {
             "temperature": data["main"]["temp"],
             "humidity": data["main"]["humidity"],
             "wind_speed": data["wind"]["speed"],
@@ -36,6 +37,19 @@ def fetch_weather(city_name=None, latitude=None, longitude=None):
             "weather_desc": data["weather"][0]["description"],
             "updated_at": datetime.utcnow().isoformat()
         }
+        
+        # Fetch air pollution data if coordinates are available
+        if latitude is not None and longitude is not None:
+            air_pollution_response = requests.get(AIR_POLLUTION_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY))
+            if air_pollution_response.status_code == 200:
+                air_data = air_pollution_response.json()
+                weather_data["air_pollution"] = air_data["list"][0]["main"]["aqi"]  # Air Quality Index (AQI)
+            else:
+                weather_data["air_pollution"] = None
+        else:
+            weather_data["air_pollution"] = None
+        
+        return weather_data
     else:
         print(f"Failed to fetch weather for {city_name or (latitude, longitude)}: {response.status_code}")
         return {
@@ -46,6 +60,7 @@ def fetch_weather(city_name=None, latitude=None, longitude=None):
             "pressure": None,
             "visibility": None,
             "weather_desc": "*",
+            "air_pollution": None,
             "updated_at": datetime.utcnow().isoformat()
         }
 
