@@ -2,7 +2,6 @@ import requests
 import os
 from supabase import create_client
 from datetime import datetime
-import json
 
 # Load environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -16,7 +15,6 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 WEATHER_API_URL_CITY = "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric"
 WEATHER_API_URL_COORDS = "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}&units=metric"
 AIR_POLLUTION_API_URL = "https://api.openweathermap.org/data/2.5/air_pollution?lat={}&lon={}&appid={}"
-ONE_CALL_API_URL = "https://api.openweathermap.org/data/2.5/onecall?lat={}&lon={}&exclude=current,minutely,alerts&appid={}&units=metric"
 
 # Air Quality Index (AQI) categories mapping
 AQI_CATEGORIES = {
@@ -29,10 +27,21 @@ AQI_CATEGORIES = {
 
 def get_aqi_category(aqi_value):
     """Map AQI value to air quality category."""
-    return AQI_CATEGORIES.get(aqi_value, "Unknown")
+    if aqi_value == 1:
+        return "Good"
+    elif aqi_value == 2:
+        return "Fair"
+    elif aqi_value == 3:
+        return "Moderate"
+    elif aqi_value == 4:
+        return "Poor"
+    elif aqi_value == 5:
+        return "Very Poor"
+    else:
+        return "Unknown"
 
 def fetch_weather(city_name=None, latitude=None, longitude=None):
-    """Fetch weather, air pollution, and forecast data from OpenWeather API."""
+    """Fetch weather and air pollution data from OpenWeather API using city name or coordinates."""
     if latitude is not None and longitude is not None:
         url = WEATHER_API_URL_COORDS.format(latitude, longitude, OPENWEATHER_API_KEY)
     else:
@@ -62,20 +71,8 @@ def fetch_weather(city_name=None, latitude=None, longitude=None):
                 weather_data["air_pollution"] = get_aqi_category(aqi_value)
             else:
                 weather_data["air_pollution"] = None
-
-            # Fetch forecast data
-            forecast_response = requests.get(ONE_CALL_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY))
-            if forecast_response.status_code == 200:
-                forecast_data = forecast_response.json()
-                weather_data["daily_forecast"] = json.dumps(forecast_data["daily"][:7])  # 7-day forecast
-                weather_data["hourly_forecast"] = json.dumps(forecast_data["hourly"][:24])  # 24-hour forecast
-            else:
-                weather_data["daily_forecast"] = None
-                weather_data["hourly_forecast"] = None
         else:
             weather_data["air_pollution"] = None
-            weather_data["daily_forecast"] = None
-            weather_data["hourly_forecast"] = None
         
         return weather_data
     else:
@@ -89,8 +86,6 @@ def fetch_weather(city_name=None, latitude=None, longitude=None):
             "visibility": None,
             "weather_desc": "*",
             "air_pollution": None,
-            "daily_forecast": None,
-            "hourly_forecast": None,
             "updated_at": datetime.utcnow().isoformat()
         }
 
@@ -116,4 +111,3 @@ def update_weather():
 
 if __name__ == "__main__":
     update_weather()
-
