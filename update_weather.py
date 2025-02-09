@@ -88,9 +88,6 @@ def update_weather():
     districts = supabase.table("districts").select("id, name, latitude, longitude").execute()
 
     if districts and districts.data:
-        request_count = 0  # Track number of requests in the last minute
-        start_time = time.time()  # Track when the minute started
-
         for district in districts.data:
             district_id = district["id"]
             city_name = district["name"]
@@ -103,11 +100,9 @@ def update_weather():
 
             # Fetch weather and forecast data
             weather_data = fetch_weather_and_forecast(latitude, longitude)
-            request_count += 1  # Increment request count
 
-            # Fetch air quality separately
+            # Fetch air quality separately (since One Call API does not include AQI in the free plan)
             air_pollution = fetch_air_quality(latitude, longitude)
-            request_count += 1  # Increment request count
 
             if weather_data:
                 weather_data["air_pollution"] = air_pollution  # Add AQI to weather data
@@ -119,15 +114,8 @@ def update_weather():
                 }).execute()
                 print(f"Updated weather for {city_name}")
 
-            # Ensure we stay under 60 requests per minute
-            elapsed_time = time.time() - start_time  # Time elapsed since start of minute
-            if request_count >= 58:  # Leave some buffer for safety
-                sleep_time = 60 - elapsed_time
-                if sleep_time > 0:
-                    print(f"Rate limit reached. Sleeping for {sleep_time:.2f} seconds...")
-                    time.sleep(sleep_time)
-                request_count = 0  # Reset request count
-                start_time = time.time()  # Restart time tracking
+            # Add delay to prevent exceeding OpenWeather API limit (60 requests per minute)
+            time.sleep(1.1)
 
 if __name__ == "__main__":
     update_weather()
