@@ -62,23 +62,21 @@ def fetch_weather_and_forecast(latitude, longitude):
             for item in forecast_data[:8]  # Next 24 hours (3-hour intervals)
         ]
         
-        # Extract daily forecast for the next 5 days (min and max temperature)
+        # Extract daily forecast for the next 5 days
         daily_forecast = {}
         for item in forecast_data:
             date = item["dt_txt"].split(" ")[0]
             if date not in daily_forecast:
-                daily_forecast[date] = {"min_temp": item["main"]["temp"], "max_temp": item["main"]["temp"]}
-            else:
-                daily_forecast[date]["min_temp"] = min(daily_forecast[date]["min_temp"], item["main"]["temp"])
-                daily_forecast[date]["max_temp"] = max(daily_forecast[date]["max_temp"], item["main"]["temp"])
+                daily_forecast[date] = []
+            daily_forecast[date].append(item["main"]["temp"])
         
-        daily_forecast_data = [
-            {"date": date, "min_temp": daily_forecast[date]["min_temp"], "max_temp": daily_forecast[date]["max_temp"]}
-            for date in list(daily_forecast.keys())[:5]
+        daily_forecast_avg = [
+            {"date": date, "temperature": sum(temps) / len(temps)}
+            for date, temps in list(daily_forecast.items())[:5]
         ]
         
         weather_data["hourly_forecast"] = hourly_forecast
-        weather_data["daily_forecast"] = daily_forecast_data
+        weather_data["daily_forecast"] = daily_forecast_avg
     
     return weather_data
 
