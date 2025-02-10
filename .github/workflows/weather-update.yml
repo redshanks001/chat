@@ -1,3 +1,10 @@
+name: Update Weather Data  # Name of the workflow
+
+on:
+  schedule:
+    - cron: "0 * * * *"  # Runs every hour
+  workflow_dispatch:  # Allows manual trigger
+
 jobs:
   update-weather:
     runs-on: ubuntu-latest  # Runs the script on a Linux environment
@@ -18,5 +25,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OPENWEATHER_API_KEYS: ${{ secrets.OPENWEATHER_API_KEYS }}  # Multiple API keys
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
         run: python update_weather.py  # Runs the Python script
+
+	
