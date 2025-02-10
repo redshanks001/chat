@@ -2,11 +2,12 @@ import requests
 import os
 from supabase import create_client
 from datetime import datetime, timedelta
+import time
 
 # Load environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
+OPENWEATHER_API_KEYS = os.getenv("OPENWEATHER_API_KEYS").split(",")  # Multiple API keys separated by comma
 
 # Create Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -29,10 +30,21 @@ def get_aqi_category(aqi_value):
     """Map AQI value to air quality category."""
     return AQI_CATEGORIES.get(aqi_value, "Unknown")
 
+def get_next_api_key():
+    """Cycle through API keys in a round-robin fashion."""
+    while True:
+        for api_key in OPENWEATHER_API_KEYS:
+            yield api_key
+
+# Initialize the API key generator
+api_key_generator = get_next_api_key()
+
 def fetch_weather_and_forecast(latitude, longitude):
     """Fetch current weather, hourly forecast, and daily forecast from OpenWeather API."""
-    url_weather = WEATHER_API_URL_COORDS.format(latitude, longitude, OPENWEATHER_API_KEY)
-    url_forecast = FORECAST_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
+    api_key = next(api_key_generator)
+    
+    url_weather = WEATHER_API_URL_COORDS.format(latitude, longitude, api_key)
+    url_forecast = FORECAST_API_URL.format(latitude, longitude, api_key)
     
     weather_data = {}
     
@@ -82,7 +94,9 @@ def fetch_weather_and_forecast(latitude, longitude):
 
 def fetch_air_quality(latitude, longitude):
     """Fetch air pollution data from OpenWeather API."""
-    url = AIR_POLLUTION_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
+    api_key = next(api_key_generator)
+    
+    url = AIR_POLLUTION_API_URL.format(latitude, longitude, api_key)
     response = requests.get(url)
     if response.status_code == 200:
         air_data = response.json()
@@ -120,6 +134,9 @@ def update_weather():
                     **weather_data
                 }).execute()
                 print(f"Updated weather for {city_name}")
+            
+            # To avoid hitting API rate limits, pause for a short time
+            time.sleep(1)  # Sleep for 1 second between requests if needed (you can adjust this time as necessary)
 
 if __name__ == "__main__":
     update_weather()
