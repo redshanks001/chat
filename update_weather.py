@@ -1,12 +1,18 @@
-import requests
 import os
+import requests
 from supabase import create_client
 from datetime import datetime, timedelta
 
 # Load environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
+OPENWEATHER_API_KEYS = os.getenv("OPENWEATHER_API_KEYS")  # Multiple keys
+
+# Check if OPENWEATHER_API_KEYS is set
+if not OPENWEATHER_API_KEYS:
+    raise ValueError("OPENWEATHER_API_KEYS environment variable is not set or is empty")
+
+OPENWEATHER_API_KEYS = OPENWEATHER_API_KEYS.split(",")  # Split by commas to get the list of keys
 
 # Create Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
