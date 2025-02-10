@@ -11,10 +11,8 @@ OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 # Create Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# OpenWeather API URL templates
-WEATHER_API_URL_COORDS = "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}&units=metric"
-FORECAST_API_URL = "https://api.openweathermap.org/data/2.5/forecast?lat={}&lon={}&appid={}&units=metric"
-AIR_POLLUTION_API_URL = "https://api.openweathermap.org/data/2.5/air_pollution?lat={}&lon={}&appid={}"
+# OpenWeather One Call API URL
+ONE_CALL_API_URL = "https://api.openweathermap.org/data/2.5/onecall?lat={}&lon={}&appid={}&units=metric"
 
 # Air Quality Index (AQI) categories mapping
 AQI_CATEGORIES = {
@@ -30,61 +28,50 @@ def get_aqi_category(aqi_value):
     return AQI_CATEGORIES.get(aqi_value, "Unknown")
 
 def fetch_weather_and_forecast(latitude, longitude):
-    """Fetch current weather, hourly forecast, and daily forecast from OpenWeather API."""
-    url_weather = WEATHER_API_URL_COORDS.format(latitude, longitude, OPENWEATHER_API_KEY)
-    url_forecast = FORECAST_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
+    """Fetch current weather, hourly forecast, and daily forecast from OpenWeather One Call API."""
+    url = ONE_CALL_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
     
     weather_data = {}
     
-    # Fetch current weather
-    weather_response = requests.get(url_weather)
-    if weather_response.status_code == 200:
-        data = weather_response.json()
+    # Fetch weather data
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        
+        # Current weather
+        current = data["current"]
         weather_data.update({
-            "temperature": data["main"]["temp"],
-            "humidity": data["main"]["humidity"],
-            "wind_speed": data["wind"]["speed"],
-            "wind_direction": data["wind"]["deg"],
-            "pressure": data["main"]["pressure"],
-            "visibility": data.get("visibility"),
-            "weather_desc": data["weather"][0]["description"],
+            "temperature": current["temp"],
+            "humidity": current["humidity"],
+            "wind_speed": current["wind_speed"],
+            "wind_direction": current["wind_deg"],
+            "pressure": current["pressure"],
+            "visibility": current.get("visibility"),
+            "weather_desc": current["weather"][0]["description"],
             "updated_at": datetime.utcnow().isoformat()
         })
-    
-    # Fetch hourly and daily forecasts
-    forecast_response = requests.get(url_forecast)
-    if forecast_response.status_code == 200:
-        forecast_data = forecast_response.json()["list"]
         
-        # Extract hourly forecast for the next 24 hours
+        # Hourly forecast for the next 24 hours
         hourly_forecast = [
-            {"time": item["dt_txt"], "temperature": item["main"]["temp"]}
-            for item in forecast_data[:8]  # Next 24 hours (3-hour intervals)
+            {"time": datetime.utcfromtimestamp(item["dt"]).isoformat(), "temperature": item["temp"]}
+            for item in data["hourly"][:8]  # Next 24 hours (3-hour intervals)
         ]
         
-        # Extract daily forecast for the next 5 days (min and max temperature)
-        daily_forecast = {}
-        for item in forecast_data:
-            date = item["dt_txt"].split(" ")[0]
-            if date not in daily_forecast:
-                daily_forecast[date] = {"min_temp": item["main"]["temp"], "max_temp": item["main"]["temp"]}
-            else:
-                daily_forecast[date]["min_temp"] = min(daily_forecast[date]["min_temp"], item["main"]["temp"])
-                daily_forecast[date]["max_temp"] = max(daily_forecast[date]["max_temp"], item["main"]["temp"])
-        
-        daily_forecast_data = [
-            {"date": date, "min_temp": daily_forecast[date]["min_temp"], "max_temp": daily_forecast[date]["max_temp"]}
-            for date in list(daily_forecast.keys())[:5]
+        # Daily forecast for the next 5 days
+        daily_forecast = [
+            {"date": datetime.utcfromtimestamp(item["dt"]).date().isoformat(), 
+             "min_temp": item["temp"]["min"], "max_temp": item["temp"]["max"]}
+            for item in data["daily"][:5]
         ]
         
         weather_data["hourly_forecast"] = hourly_forecast
-        weather_data["daily_forecast"] = daily_forecast_data
+        weather_data["daily_forecast"] = daily_forecast
     
     return weather_data
 
 def fetch_air_quality(latitude, longitude):
     """Fetch air pollution data from OpenWeather API."""
-    url = AIR_POLLUTION_API_URL.format(latitude, longitude, OPENWEATHER_API_KEY)
+    url = f"https://api.openweathermap.org/data/2.5/air_pollution?lat={latitude}&lon={longitude}&appid={OPENWEATHER_API_KEY}"
     response = requests.get(url)
     if response.status_code == 200:
         air_data = response.json()
@@ -107,7 +94,7 @@ def update_weather():
                 print(f"Skipping {city_name} due to missing coordinates.")
                 continue
             
-            # Fetch weather and forecast data
+            # Fetch weather and forecast data using One Call API
             weather_data = fetch_weather_and_forecast(latitude, longitude)
             
             # Fetch air quality separately
