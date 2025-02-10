@@ -1,0 +1,31 @@
+name: Update Weather Data  # Name of the workflow
+
+on:
+  schedule:
+    - cron: "0 * * * *"  # Runs every hour
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  update-weather:
+    runs-on: ubuntu-latest  # Runs the script on a Linux environment
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3  # Gets the latest version of your repository
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"  # Ensures Python 3.10 is installed
+
+      - name: Install Dependencies
+        run: pip install requests supabase  # Installs required libraries
+
+      - name: Fetch Weather and Update Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+        run: python update_weather.py  # Runs the Python script
+
+	
